@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Self
 
 from pydantic import (
+    EmailStr,
     Field,
     HttpUrl,
+    Secret,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -121,6 +123,10 @@ class Settings(BaseSettings):
     SENTRY_DSN: HttpUrl | None = Field(default=None)
     SENTRY_TRACES_SAMPLE_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
 
+    # User Credentials for Wellfound Website
+    USER_EMAIL: EmailStr | None = Field(default=None)
+    USER_PASSWORD: Secret | None = Field(default=None, min_length=1)
+
     # Workspace Directory Paths
     DATA_DIR: Path = Field(default_factory=lambda: BASE_DIR / "data")
     LOGS_DIR: Path = Field(default_factory=lambda: BASE_DIR / "logs")
@@ -137,26 +143,29 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_environment_credentials(self) -> Self:
-        """Validate credentials required by the configured runtime environment.
-
-        Checks that external service credentials required by the current
-        environment are available and appropriately configured.
-
-        Raises
-        ------
-        ValueError
-            If a required credential is missing or invalid for the selected
-            environment.
-        """
-        if self.ENVIRONMENT == Environment.TESTING:
+        """Validate credentials required outside development and testing."""
+        if self.ENVIRONMENT not in {
+            Environment.PRODUCTION,
+            Environment.STAGING,
+        }:
             return self
 
-        if (
-            self.ENVIRONMENT in {Environment.PRODUCTION, Environment.STAGING}
-            and not self.SENTRY_DSN
-        ):
+        missing_secrets: list[str] = []
+
+        if self.SENTRY_DSN is None:
+            missing_secrets.append("SENTRY_DSN")
+
+        if self.USER_EMAIL is None:
+            missing_secrets.append("USER_EMAIL")
+
+        if self.USER_PASSWORD is None:
+            missing_secrets.append("USER_PASSWORD")
+
+        if missing_secrets:
             raise ValueError(
-                f"Missing required secrets for {self.ENVIRONMENT.value} environment: SENTRY_DSN"
+                f"Missing required secrets for "
+                f"{self.ENVIRONMENT.value} environment: "
+                f"{', '.join(missing_secrets)}"
             )
 
         return self

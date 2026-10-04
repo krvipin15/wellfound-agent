@@ -18,6 +18,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "email-validator>=2.3.0",
+    "playwright>=1.63.0",
+    "playwright-stealth>=2.0.3",
     "pydantic-settings>=2.15.0",
     "sentry-sdk>=2.71.0",
     "structlog>=26.1.0",
