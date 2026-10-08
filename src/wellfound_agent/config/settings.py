@@ -10,11 +10,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Self
 
+import yaml
 from pydantic import (
+    BaseModel,
     EmailStr,
     Field,
     HttpUrl,
-    Secret,
+    SecretStr,
+    ValidationError,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -70,6 +73,93 @@ class LogLevel(StrEnum):
     CRITICAL = "CRITICAL"
 
 
+class JobFilterSettings(BaseModel):
+    """User-defined criteria for filtering Wellfound jobs."""
+
+    job_title: list[str] | None = Field(
+        default=None,
+        description="Job title to search for, such as Backend Engineer.",
+    )
+
+    skills: list[str] | None = Field(
+        default=None,
+        description="Required skills, such as Python or Django.",
+    )
+
+    include_keywords: list[str] | None = Field(
+        default=None,
+        description="Keywords that should appear in the job.",
+    )
+
+    exclude_keywords: list[str] | None = Field(
+        default=None,
+        description="Keywords that should exclude a job.",
+    )
+
+    experience_min_years: int | None = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description="Minimum required experience in years.",
+    )
+
+    experience_max_years: int | None = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description="Maximum required experience in years.",
+    )
+
+    locations: list[str] | None = Field(
+        default=None,
+        description="Allowed job locations.",
+    )
+
+    @classmethod
+    def load_from_yaml(cls, yaml_path: Path) -> "JobFilterSettings":
+        """Load and validate job-filter settings from a YAML file.
+
+        The YAML file must contain a top-level ``job_filter`` mapping.
+
+        Parameters
+        ----------
+        yaml_path:
+            Path to the YAML configuration file.
+
+        Returns
+        -------
+        JobFilterSettings
+            Validated job-filter configuration.
+
+        Raises
+        ------
+        RuntimeError
+            If the YAML is malformed or fails Pydantic validation.
+        """
+        if not yaml_path.is_file():
+            return cls()
+
+        try:
+            with yaml_path.open(mode="r", encoding="utf-8") as file:
+                data = yaml.safe_load(file) or {}
+
+            if not isinstance(data, dict):
+                raise RuntimeError(f"YAML root must be a mapping in '{yaml_path}'.")
+
+            filter_data = data.get("job_filter", {})
+
+            if not isinstance(filter_data, dict):
+                raise RuntimeError(f"'job_filter' must be a mapping in '{yaml_path}'.")
+
+            return cls.model_validate(filter_data)
+
+        except yaml.YAMLError as exc:
+            raise RuntimeError(f"Malformed YAML configuration in '{yaml_path}': {exc}") from exc
+
+        except ValidationError as exc:
+            raise RuntimeError(f"Invalid job-filter configuration in '{yaml_path}': {exc}") from exc
+
+
 class Settings(BaseSettings):
     """Define validated application-wide runtime configuration.
 
@@ -94,6 +184,10 @@ class Settings(BaseSettings):
     APP_HOST: str = Field(default="0.0.0.0")
     APP_PORT: int = Field(default=8000, ge=1, le=65535)
 
+    # Wellfound Authentication
+    LOGIN_URL: str = "https://wellfound.com/login"
+    JOBS_URL: str = "https://wellfound.com/jobs"
+
     # API Endpoints
     API_BASE_URL: str | None = None
     HEALTH_API_URL: str = ""
@@ -115,7 +209,7 @@ class Settings(BaseSettings):
     BROWSER_TIMEOUT_MS: int = Field(default=30000, ge=1000)
 
     # Temporal Workflow Orchestration
-    TEMPORAL_HOST: str = Field(default="localhost")
+    TEMPORAL_HOST: str = Field(default="localhost:7233")
     TEMPORAL_NAMESPACE: str = Field(default="default")
     TEMPORAL_TASK_QUEUE: str = Field(default="agent-queue")
 
@@ -125,11 +219,21 @@ class Settings(BaseSettings):
 
     # User Credentials for Wellfound Website
     USER_EMAIL: EmailStr | None = Field(default=None)
-    USER_PASSWORD: Secret | None = Field(default=None, min_length=1)
+    USER_PASSWORD: SecretStr | None = Field(default=None, min_length=1)
+
+    # Job-filter configuration
+    JOB_FILTER_CONFIG_PATH: Path = Field(default=BASE_DIR / "params.yaml")
+    JOB_FILTER: JobFilterSettings = Field(default_factory=JobFilterSettings)
 
     # Workspace Directory Paths
     DATA_DIR: Path = Field(default_factory=lambda: BASE_DIR / "data")
     LOGS_DIR: Path = Field(default_factory=lambda: BASE_DIR / "logs")
+
+    @model_validator(mode="after")
+    def load_job_filter_config(self) -> Self:
+        """Load job-filter settings from the configured YAML file."""
+        self.JOB_FILTER = JobFilterSettings.load_from_yaml(self.JOB_FILTER_CONFIG_PATH)
+        return self
 
     @model_validator(mode="after")
     def assemble_api_urls(self) -> "Settings":
@@ -175,6 +279,7 @@ class Settings(BaseSettings):
         directories = [
             self.LOGS_DIR,
             self.DATA_DIR,
+            self.BROWSER_USER_DATA_DIR,
         ]
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)

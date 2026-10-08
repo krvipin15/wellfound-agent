@@ -26,6 +26,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Playwright browser user data
+browser_user_data/
+
 # Test, coverage, lint, and type-checker caches
 .pytest_cache/
 .cache/

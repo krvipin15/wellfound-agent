@@ -1,0 +1,6 @@
+job_filter:
+  skills:
+    - Python
+
+  experience_min_years: 0
+  experience_max_years: 2
