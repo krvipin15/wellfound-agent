@@ -53,13 +53,27 @@ docs-deploy:
 serve:
     uv run uvicorn wellfound_agent.api.app:app --reload
 
-# Build and start the application containers in detached mode
-container-up:
-    podman-compose up --build -d --remove-orphans --force-recreate
+## --- Temporal ---
 
-# Stop and remove the application containers
-container-down:
-    podman-compose down
+# Start the local Temporal development server
+temporal-up:
+    podman compose up -d temporal
+
+# Stop the local Temporal development server
+temporal-down:
+    podman compose down
+
+# Open the Temporal Web UI in the default web browser
+temporal-ui:
+    xdg-open http://localhost:8233
+
+# Start the Wellfound Temporal Worker
+temporal-worker:
+    python3 -m wellfound_agent.workflows.worker
+
+# Start a Wellfound Workflow execution
+temporal-run:
+    uv run python -m wellfound_agent.workflows.client
 
 ## --- Cleanup ---
 
@@ -72,6 +86,7 @@ clean-cache:
     find . -type f -name "*.pyc" -delete
     rm -rf .coverage htmlcov/ site/ dist/ build/ *.egg-info
     rm -f coverage.xml
+    rm -rf browser_user_data/
     @echo "success: Cleaned all the cache"
 
 # Clean the generated log files
